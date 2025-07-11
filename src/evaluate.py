@@ -37,8 +37,10 @@ CONFIG = {
     'dropout': 0.2,
     'learning_rate': 0.001,
     'batch_size': 64,
-    'epochs': 20,
-    'project_name': 'stock_forecasting_pipeline'
+    'epochs': 150,
+    'project_name': 'stock_forecasting_pipeline',
+    'start_date': '2019-01-01',   # ✅ New!
+    'end_date': '2025-01-01'      # ✅ New!
 }
 
 
@@ -47,6 +49,7 @@ def compare_all_models(symbol="AAPL"):
 
     # === Load & engineer ===
     df = fetch_stock_data(symbol)
+    df = df.loc[CONFIG['start_date']:CONFIG['end_date']]
     df = add_technical_indicators(df)
     X_train, X_test, y_train, y_test = train_test_split(df, sequence_length=CONFIG['sequence_length'])
 
