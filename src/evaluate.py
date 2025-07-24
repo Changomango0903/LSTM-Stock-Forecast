@@ -37,7 +37,7 @@ CONFIG = {
     'dropout': 0.2,
     'learning_rate': 0.001,
     'batch_size': 64,
-    'epochs': 150,
+    'epochs': 25,
     'project_name': 'stock_forecasting_pipeline',
     'start_date': '2019-01-01',   # ✅ New!
     'end_date': '2025-01-01'      # ✅ New!
