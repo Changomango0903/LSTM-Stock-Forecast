@@ -3,3 +3,4 @@
 *.pt
 /wandb
 */__pycache__
+*.csv

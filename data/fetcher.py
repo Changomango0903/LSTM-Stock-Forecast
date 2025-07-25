@@ -3,7 +3,7 @@ data/fetcher.py
 
 Purpose:
 --------
-Downloads historical stock price data using AlphaVantage API.
+Downloads or loads cached historical stock price data using AlphaVantage API.
 
 Inputs:
 -------
@@ -25,6 +25,16 @@ load_dotenv()  # Loads .env file with ALPHAVANTAGE_API_KEY
 
 
 def fetch_stock_data(symbol: str, interval: str = 'daily', outputsize: str = 'full') -> pd.DataFrame:
+    os.makedirs("data", exist_ok=True)
+    cache_file = f"data/{symbol}_{interval}.csv"
+
+    if os.path.exists(cache_file):
+        print("Found existing stock data")
+        df = pd.read_csv(cache_file, index_col=0, parse_dates=True)
+        df = df.sort_index()
+        return df
+
+    # === Fetch from AlphaVantage ===
     api_key = os.getenv("ALPHAVANTAGE_API_KEY")
     ts = TimeSeries(key=api_key, output_format='pandas')
 
@@ -35,6 +45,10 @@ def fetch_stock_data(symbol: str, interval: str = 'daily', outputsize: str = 'fu
     else:
         raise ValueError("Interval must be 'daily' or 'intraday'")
 
-    data = data.rename(columns=lambda col: col.split('. ')[1])
-    data = data.sort_index()
-    return data
+    df = data.rename(columns=lambda col: col.split('. ')[1])
+    df = df.sort_index()
+
+    # Save to CSV
+    df.to_csv(cache_file)
+
+    return df

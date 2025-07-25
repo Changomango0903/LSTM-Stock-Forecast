@@ -109,7 +109,7 @@ def main():
             "AttnLSTM_Mean_Signal_Return": attn_metrics[2],
         })
 
-        plot_combined(lstm_actuals, lstm_preds, attn_preds)
+        plot_combined(lstm_actuals, lstm_preds, attn_preds, dates=test_dates)
 
     wandb.finish()
 
