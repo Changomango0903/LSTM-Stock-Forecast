@@ -73,10 +73,12 @@ def train_model(model, X_train, y_train, X_test, y_test, config, y_scaler=None, 
         history['train_loss'].append(avg_train_loss)
         history['val_loss'].append(val_loss)
 
+        model_prefix = config['model_name']  # e.g., 'LSTM' or 'Attention_LSTM'
+
         wandb.log({
-            "Train Loss": avg_train_loss,
-            "Val Loss": val_loss,
-            "epoch": epoch + 1
+            f"{model_prefix}_Train_Loss": avg_train_loss,
+            f"{model_prefix}_Val_Loss": val_loss,
+            f"{model_prefix}_Epoch": epoch + 1
         })
 
         print(f"[Epoch {epoch+1}/{config['epochs']}] Train Loss: {avg_train_loss:.5f} | Val Loss: {val_loss:.5f}")

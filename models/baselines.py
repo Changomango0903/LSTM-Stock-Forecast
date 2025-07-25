@@ -23,9 +23,11 @@ from sklearn.metrics import mean_squared_error
 import numpy as np
 import matplotlib.pyplot as plt
 import wandb
+import os
 
 
 def train_baseline_models(X_train, y_train, X_test, y_test, test_dates):
+    os.makedirs("plots", exist_ok=True)
     X_train_last = X_train[:, -1, :]
     X_test_last = X_test[:, -1, :]
 
@@ -48,14 +50,13 @@ def train_baseline_models(X_train, y_train, X_test, y_test, test_dates):
         rmse = np.sqrt(mean_squared_error(y_test, preds))
         results[name] = rmse
         predictions[name] = (preds, y_test)
-
         plt.figure(figsize=(10, 5))
         plt.plot(test_dates, y_test, label="Actual")
         plt.plot(test_dates, preds, label=f"{name} Predicted")
         plt.title(f"{name} Predictions vs Actual")
         plt.legend()
         plt.tight_layout()
-        filename = f"{name}_predictions.png"
+        filename = os.path.join("plots", f"{name}_predictions.png")
         plt.savefig(filename)
         wandb.log({f"{name}_Predictions_vs_Actuals": wandb.Image(filename)})
 
