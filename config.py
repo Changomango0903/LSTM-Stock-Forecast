@@ -24,7 +24,7 @@ CONFIG = {
     'dropout': 0.2,
     'learning_rate': 0.001,
     'batch_size': 64,
-    'epochs': 25,
+    'epochs': 150,
 
     # WandB
     'project_name': 'stock_forecasting_phase1',

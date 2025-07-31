@@ -8,11 +8,13 @@ Train classic ML models (Linear, Ridge, SVR, etc.) as benchmarks.
 Inputs:
 -------
 - X_train, y_train, X_test, y_test (np.ndarray)
+- test_dates (np.ndarray)
+- y_scaler (StandardScaler or None): optional inverse-scaler
 
 Outputs:
 --------
 - results (dict): model_name → RMSE
-- predictions (dict): model_name → (preds, y_test)
+- predictions (dict): model_name → (preds, actuals)
 """
 
 from sklearn.linear_model import Ridge, LinearRegression, Lasso
@@ -26,10 +28,15 @@ import wandb
 import os
 
 
-def train_baseline_models(X_train, y_train, X_test, y_test, test_dates):
+def train_baseline_models(X_train, y_train, X_test, y_test, test_dates, y_scaler=None):
     os.makedirs("plots", exist_ok=True)
     X_train_last = X_train[:, -1, :]
     X_test_last = X_test[:, -1, :]
+
+    # Inverse scale targets
+    if y_scaler:
+        y_train = y_scaler.inverse_transform(y_train.reshape(-1, 1)).flatten()
+        y_test = y_scaler.inverse_transform(y_test.reshape(-1, 1)).flatten()
 
     models = {
         "Linear": LinearRegression(),
@@ -50,6 +57,8 @@ def train_baseline_models(X_train, y_train, X_test, y_test, test_dates):
         rmse = np.sqrt(mean_squared_error(y_test, preds))
         results[name] = rmse
         predictions[name] = (preds, y_test)
+
+        # Plot
         plt.figure(figsize=(10, 5))
         plt.plot(test_dates, y_test, label="Actual")
         plt.plot(test_dates, preds, label=f"{name} Predicted")

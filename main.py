@@ -1,30 +1,3 @@
-"""
-main.py
-
-Purpose:
---------
-Unified entry point to run training or evaluation via CLI flags.
-
-Supports:
-    --mode: 'train' or 'evaluate'
-    --model: 'lstm', 'attn', or 'baseline'
-    --symbol: Stock ticker symbol
-
-Example:
---------
-$ python main.py --mode train --model lstm --symbol AAPL
-$ python main.py --mode evaluate --symbol AAPL
-
-Dependencies:
--------------
-- Requires proper AlphaVantage API key set via `.env`
-- Uses wandb for experiment tracking
-
-Returns:
---------
-None (results are logged and plotted)
-"""
-
 import argparse
 from config import CONFIG
 from training.trainer import train_model
@@ -36,10 +9,9 @@ from features.indicators import add_technical_indicators
 from models.lstm import LSTMModel
 from models.attention_lstm import AttentionLSTM
 from models.baselines import train_baseline_models
-from utils.plots import plot_predictions, plot_loss_curve, plot_combined
+from utils.plots import plot_combined
 
 import wandb
-import os
 
 
 def main():
@@ -54,11 +26,13 @@ def main():
     # === Load & preprocess ===
     df = fetch_stock_data(args.symbol)
     df = df.loc[CONFIG['start_date']:CONFIG['end_date']]
-    print(df)
-    print(df.shape)
     df = add_technical_indicators(df)
-    X_train, X_test, y_train, y_test, train_dates, test_dates = create_sequences(df, sequence_length=CONFIG['sequence_length'])
-    X_train, X_test, y_train, y_test, X_scaler, y_scaler = scale_data(X_train, X_test, y_train, y_test)
+    X_train, X_test, y_train, y_test, train_dates, test_dates = create_sequences(
+        df, sequence_length=CONFIG['sequence_length']
+    )
+    X_train, X_test, y_train, y_test, X_scaler, y_scaler = scale_data(
+        X_train, X_test, y_train, y_test
+    )
 
     if args.mode == 'train':
         if args.model == 'lstm':
@@ -70,30 +44,56 @@ def main():
         else:
             raise ValueError("Baseline training not supported in 'train' mode. Use 'evaluate'.")
 
-        rmse, preds, actuals, history = train_model(model, X_train, y_train, X_test, y_test,
-                                                    CONFIG | {'model_name': name},
-                                                    y_scaler,
-                                                    test_dates=test_dates)
-
-        plot_predictions(preds, actuals, name)
-        plot_loss_curve(history, name)
+        train_model(
+            model,
+            X_train,
+            y_train,
+            X_test,
+            y_test,
+            CONFIG | {'model_name': name},
+            y_scaler,
+            test_dates=test_dates
+        )
 
     elif args.mode == 'evaluate':
-        # === Baselines ===
-        baseline_rmse, _ = train_baseline_models(X_train, y_train, X_test, y_test, test_dates)
+        # === Baseline Models ===
+        baseline_rmse, baseline_predictions = train_baseline_models(
+            X_train, y_train, X_test, y_test, test_dates, y_scaler=y_scaler
+        )
+
+        for name, (preds, actuals) in baseline_predictions.items():
+            da, wr, msr = compute_finance_metrics(preds, actuals)
+            wandb.log({
+                f"{name}_RMSE": baseline_rmse[name],
+                f"{name}_Directional_Accuracy": da,
+                f"{name}_Win_Rate": wr,
+                f"{name}_Mean_Signal_Return": msr
+            })
 
         # === LSTM ===
         lstm = LSTMModel(input_size=X_train.shape[2], **CONFIG)
         lstm_rmse, lstm_preds, lstm_actuals, lstm_hist = train_model(
-            lstm, X_train, y_train, X_test, y_test,
-            CONFIG | {'model_name': 'LSTM'}, y_scaler
+            lstm,
+            X_train,
+            y_train,
+            X_test,
+            y_test,
+            CONFIG | {'model_name': 'LSTM'},
+            y_scaler,
+            test_dates=test_dates
         )
 
         # === Attention LSTM ===
         attn = AttentionLSTM(input_size=X_train.shape[2], **CONFIG)
         attn_rmse, attn_preds, attn_actuals, attn_hist = train_model(
-            attn, X_train, y_train, X_test, y_test,
-            CONFIG | {'model_name': 'Attention_LSTM'}, y_scaler
+            attn,
+            X_train,
+            y_train,
+            X_test,
+            y_test,
+            CONFIG | {'model_name': 'Attention_LSTM'},
+            y_scaler,
+            test_dates=test_dates
         )
 
         # === Financial Metrics ===
@@ -109,6 +109,7 @@ def main():
             "AttnLSTM_Mean_Signal_Return": attn_metrics[2],
         })
 
+        # === Combined Plot ===
         plot_combined(lstm_actuals, lstm_preds, attn_preds, dates=test_dates)
 
     wandb.finish()
