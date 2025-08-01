@@ -100,7 +100,7 @@ def train_model(model, X_train, y_train, X_test, y_test, config, y_scaler=None, 
 
     # === Save model ===
     os.makedirs("models", exist_ok=True)
-    model_path = f"models/{wandb.run.name}_{config['model_name']}.pt"
+    model_path = f"models/model_files/{wandb.run.name}_{config['model_name']}.pt"
     torch.save(model.state_dict(), model_path)
     wandb.save(model_path)
 

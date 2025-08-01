@@ -12,6 +12,8 @@ from models.baselines import train_baseline_models
 from utils.plots import plot_combined
 from denoising.denoise import apply_denoising
 
+import matplotlib.pyplot as plt
+
 import wandb
 
 
@@ -23,16 +25,34 @@ def main():
     parser.add_argument('--denoise_method', type=str, default='raw',
                     choices=['raw', 'ema', 'fft', 'hp', 'kalman', 'wavelet'],
                     help='Denoising method to apply to the price series')
-
     args = parser.parse_args()
 
     wandb.init(project=CONFIG['project_name'], config=CONFIG)
 
+    wandb.config.update({'denoise_method': args.denoise_method})
+
+
     # === Load & preprocess ===
     df = fetch_stock_data(args.symbol)
+    
+    raw_close = df['close'].copy()
+    smoothed_close = apply_denoising(raw_close, method=args.denoise_method)
+    df['close'] = smoothed_close  # overwrite for feature generation
+    
+    # Plot & log raw vs smoothed
+    plt.figure(figsize=(12, 5))
+    plt.plot(raw_close, label='Raw Close', alpha=0.6)
+    plt.plot(smoothed_close, label=f'{args.denoise_method} Smoothed', linewidth=2)
+    plt.title(f"{args.symbol}: Raw vs Smoothed Close ({args.denoise_method})")
+    plt.legend()
+    plt.tight_layout()
+
+    wandb.log({f"{args.symbol}_Raw_vs_Smoothed_{args.denoise_method}": wandb.Image(plt)})
+    plt.close()
+
+    
     df = df.loc[CONFIG['start_date']:CONFIG['end_date']]
     df = add_technical_indicators(df)
-    df['close'] = apply_denoising(df['close'], method=args.denoise_method)
     wandb.config.update({'denoise_method': args.denoise_method})
 
     X_train, X_test, y_train, y_test, train_dates, test_dates = create_sequences(
