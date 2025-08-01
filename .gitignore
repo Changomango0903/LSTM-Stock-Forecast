@@ -2,5 +2,6 @@
 *.png
 *.pt
 /wandb
-*/__pycache__
+__pycache__
+./__pycache__
 *.csv

@@ -10,6 +10,7 @@ from models.lstm import LSTMModel
 from models.attention_lstm import AttentionLSTM
 from models.baselines import train_baseline_models
 from utils.plots import plot_combined
+from denoising.denoise import apply_denoising
 
 import wandb
 
@@ -19,6 +20,10 @@ def main():
     parser.add_argument('--mode', choices=['train', 'evaluate'], required=True)
     parser.add_argument('--model', choices=['lstm', 'attn', 'baseline'], default='lstm')
     parser.add_argument('--symbol', type=str, default=CONFIG['default_symbol'])
+    parser.add_argument('--denoise_method', type=str, default='raw',
+                    choices=['raw', 'ema', 'fft', 'hp', 'kalman', 'wavelet'],
+                    help='Denoising method to apply to the price series')
+
     args = parser.parse_args()
 
     wandb.init(project=CONFIG['project_name'], config=CONFIG)
@@ -27,6 +32,9 @@ def main():
     df = fetch_stock_data(args.symbol)
     df = df.loc[CONFIG['start_date']:CONFIG['end_date']]
     df = add_technical_indicators(df)
+    df['close'] = apply_denoising(df['close'], method=args.denoise_method)
+    wandb.config.update({'denoise_method': args.denoise_method})
+
     X_train, X_test, y_train, y_test, train_dates, test_dates = create_sequences(
         df, sequence_length=CONFIG['sequence_length']
     )
