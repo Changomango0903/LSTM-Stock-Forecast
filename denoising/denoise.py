@@ -8,6 +8,9 @@ Central router for all denoising methods.
 
 from denoising.methods.ema import apply_ema
 from denoising.methods.fft import apply_fft
+from denoising.methods.hp import apply_hp
+from denoising.methods.kalman import apply_kalman
+from denoising.methods.wavelet import apply_wavelet
 
 
 def apply_denoising(series, method='raw'):
