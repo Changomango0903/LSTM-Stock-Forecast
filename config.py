@@ -27,7 +27,7 @@ CONFIG = {
     'epochs': 150,
 
     # WandB
-    'project_name': 'stock_forecasting_denoise',
+    'project_name': 'stock_forecasting_holdout_evaluation',
 
     # Data Range
     'start_date': '2019-01-01',

@@ -82,7 +82,7 @@ def plot_loss_curve(history, model_name: str):
     plt.close()
 
 
-def plot_combined(actuals, lstm_preds, attn_preds, dates=None):
+def plot_combined(actuals, lstm_preds, attn_preds, dates, title=None):
     """
     Plot combined forecast from LSTM and Attention LSTM vs actuals.
 
@@ -104,7 +104,10 @@ def plot_combined(actuals, lstm_preds, attn_preds, dates=None):
         plt.plot(lstm_preds, label="LSTM Predicted", linestyle="--")
         plt.plot(attn_preds, label="Attention LSTM Predicted", linestyle="--")
 
-    plt.title("Combined Forecast: LSTM vs Attention LSTM vs Actual")
+    if title:
+        plt.title(title)
+    else:    
+        plt.title("Combined Forecast: LSTM vs Attention LSTM vs Actual")
     plt.xlabel("Time")
     plt.ylabel("Price")
     plt.legend()
