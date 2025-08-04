@@ -5,10 +5,10 @@ Daily live prediction pipeline—strictly causal:
 3) Append today’s open + carry-forward close
 4) Compute lagged indicators & drop NaNs
 5) Build final 60-day sequence
-6) Log the raw input window (dates + features)
+6) Log only the real input window (dates ≤ yesterday)
 7) Load model/scalers, scale & predict
-8) Record to CSV & W&B
-9) Compute practical directional accuracy
+8) Record today’s prediction to CSV & W&B
+9) Compute practical directional accuracy on past dates only
 """
 
 import logging
@@ -44,7 +44,7 @@ def run_live_predict(symbol: str):
     # 2) Denoise only on that past history
     hist["close"] = apply_denoising(hist["close"], CONFIG["denoising_method"])
 
-    # 3) Append today’s open + carry-forward
+    # 3) Append today’s open + carry-forward yesterday’s close, high, low, volume
     today = datetime.utcnow().date()
     open_price = fetch_latest_open(symbol)
     last = hist.iloc[-1]
@@ -57,16 +57,17 @@ def run_live_predict(symbol: str):
     df = df[CONFIG["feature_cols"]]
     logger.debug(f"Post-features df shape: {df.shape}")
 
-    # 5) Build sequence
+    # 5) Build sequence for prediction
     X, _, dates = create_sequences(df, CONFIG["sequence_length"])
     X_last = X[-1:,:,:]
 
-    # 6) Log the raw input window
-    #    Show the last `sequence_length` rows of df (features + timestamp)
-    window_df = df.iloc[-CONFIG["sequence_length"]:]
-    logger.info("Input window for model (last 60 days):")
+    # 6) Log only the last 60 real days (exclude today’s placeholder)
+    full_window = df.iloc[-CONFIG["sequence_length"]:]
+    window_df = full_window.iloc[:-1]  # drop placeholder
+    logger.info("Input window for model (last 60 real days):")
     for dt, row in window_df.iterrows():
-        logger.info(f"  {dt.date()} | " + " | ".join(f"{col}={row[col]:.4f}" for col in window_df.columns))
+        vals = " | ".join(f"{col}={row[col]:.4f}" for col in window_df.columns)
+        logger.info(f"  {dt.date()} | {vals}")
 
     # 7) Load model & scalers
     model = LSTMModel(
@@ -78,7 +79,7 @@ def run_live_predict(symbol: str):
     model_path = os.path.join(CONFIG["model_dir"], f"{symbol}_latest.pt")
     try:
         model.load_state_dict(torch.load(model_path))
-    except RuntimeError as e:
+    except RuntimeError:
         logger.error(
             "Model-input-size mismatch when loading checkpoint. "
             "Did you change CONFIG['feature_cols']? Please retrain."
@@ -96,18 +97,10 @@ def run_live_predict(symbol: str):
     with torch.no_grad():
         norm_pred = model(torch.tensor(Xs, dtype=torch.float32)).item()
     pred = y_scaler.inverse_transform([[norm_pred]])[0,0]
-    logger.info(f"Predicted next close for {symbol} on {(pd.to_datetime(dates[-1]) + pd.Timedelta(days=1)).date()}: {pred:.2f}")
+    logger.info(f"Predicted close for {symbol} on {today}: {pred:.2f}")
 
-    # 9) Record to CSV & W&B
-    # last_date = pd.to_datetime(dates[-1])
-    # next_date = last_date + pd.Timedelta(days=1)
-    
-    # We want to label this prediction as “today”
-    # since we’re running after today’s open and forecasting for today
-    next_date = pd.Timestamp(today)
-    
-    out = {"date": next_date, "pred": pred}
-
+    # Record today’s prediction
+    out = {"date": pd.Timestamp(today), "pred": pred}
     os.makedirs(os.path.dirname(CONFIG["live_csv"]), exist_ok=True)
     pd.DataFrame([out]).to_csv(
         CONFIG["live_csv"],
@@ -117,18 +110,18 @@ def run_live_predict(symbol: str):
     )
     wandb.log(out)
 
-    # 10) Compute and log live directional accuracy
+    # 9) Compute and log live directional accuracy based on past dates only
     live_df = pd.read_csv(CONFIG["live_csv"], parse_dates=["date"])
-    if len(live_df) > 1:
-        hist2 = fetch_historical(
-            symbol,
-            live_df["date"].min().strftime("%Y-%m-%d"),
-            live_df["date"].max().strftime("%Y-%m-%d")
-        )
-        actuals = [hist2.loc[pd.Timestamp(d), "close"] for d in live_df["date"]]
-        live_df["actual"] = actuals
-        da = (np.sign(live_df["pred"].diff().dropna())
-              == np.sign(live_df["actual"].diff().dropna())).mean()
+    past_df = live_df[live_df["date"].dt.date < datetime.utcnow().date()]
+    if len(past_df) > 1:
+        start_date = past_df["date"].min().strftime("%Y-%m-%d")
+        end_date   = past_df["date"].max().strftime("%Y-%m-%d")
+        hist2 = fetch_historical(symbol, start_date, end_date)
+        actuals = [hist2.loc[pd.Timestamp(d), "close"] for d in past_df["date"]]
+        past_df["actual"] = actuals
+
+        da = (np.sign(past_df["pred"].diff().dropna())
+              == np.sign(past_df["actual"].diff().dropna())).mean()
         wandb.log({"Live_DA": da})
         logger.info(f"Live directional accuracy: {da:.3f}")
 

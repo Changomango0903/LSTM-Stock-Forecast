@@ -24,7 +24,7 @@ CONFIG = {
     "dropout": 0.2,
     "learning_rate": 1e-3,
     "batch_size": 64,
-    "epochs": 130,
+    "epochs": 150,
 
     # AlphaVantage
     "av_api_key": os.getenv("ALPHAVANTAGE_API_KEY", ""),
@@ -39,7 +39,11 @@ CONFIG = {
         "SMA_20",
         "SMA_50",
         "RSI_14",
-        "Volatility"
+        "Volatility",
+        "Return_1",
+        "Return_5",
+        "Volume_Change",
+        "Return_Skew"
     ],
     
     # Artifacts
