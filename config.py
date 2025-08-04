@@ -1,38 +1,52 @@
 """
-Purpose:
---------
-Centralized configuration used across training, evaluation, and model components.
-
-Contains model hyperparameters, sequence settings, API keys (via environment), 
-project naming for wandb, etc.
-
-Usage:
-------
-Import as:
-    from config import CONFIG
-
-Returns:
---------
-CONFIG (dict): Central configuration dictionary for the pipeline.
+Central configuration for the pipeline:
+- Data parameters
+- Model hyperparameters
+- AlphaVantage API settings
+- Denoising choice
+- Artifact paths
+- W&B project name
 """
 
+import os
+
 CONFIG = {
-    # Model Training
-    'sequence_length': 60,
-    'hidden_size': 64,
-    'num_layers': 2,
-    'dropout': 0.2,
-    'learning_rate': 0.001,
-    'batch_size': 64,
-    'epochs': 150,
+    # Data & sequences
+    "sequence_length": 60,
+    "holdout_size": 250,
+    "start_date": "2020-01-01",
+    "end_date": "2025-08-01",
+    "default_symbol": "AAPL",
 
-    # WandB
-    'project_name': 'stock_forecasting_live_evaluation',
+    # Model hyperparameters
+    "hidden_size": 64,
+    "num_layers": 2,
+    "dropout": 0.2,
+    "learning_rate": 1e-3,
+    "batch_size": 64,
+    "epochs": 130,
 
-    # Data Range
-    'start_date': '2019-01-01',
-    'end_date': '2025-01-01',
+    # AlphaVantage
+    "av_api_key": os.getenv("ALPHAVANTAGE_API_KEY", ""),
+    "av_base_url": "https://www.alphavantage.co/query",
 
-    # Default Symbol
-    'default_symbol': 'AAPL',
+    # Denoising method: "raw", "ema", or "kalman"
+    "denoising_method": "kalman",
+    
+    #Choose features
+    "feature_cols": [
+        "close",
+        "SMA_20",
+        "SMA_50",
+        "RSI_14",
+        "Volatility"
+    ],
+    
+    # Artifacts
+    "model_dir": "artifacts/models",
+    "scaler_dir": "artifacts/scalers",
+    "live_csv": "artifacts/live_results.csv",
+
+    # Weights & Biases
+    "wandb_project": "stock_forecasting_live",
 }

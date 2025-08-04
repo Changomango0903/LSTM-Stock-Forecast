@@ -1,93 +1,43 @@
 """
-features/indicators.py
+Compute and lag technical indicators to avoid leakage:
+- SMA_20, SMA_50
+- RSI_14
+- Volatility (20-day std of returns)
 
-Purpose:
---------
-Adds a wide set of technical indicators to the stock price dataframe for use
-in feature engineering.
-
-Inputs:
--------
-- df (pd.DataFrame): DataFrame containing ['open', 'high', 'low', 'close', 'volume']
-
-Outputs:
---------
-- pd.DataFrame: Original df with added technical features.
+Each indicator at date t uses data through t-1 only.
 """
 
 import pandas as pd
-import numpy as np
-
 
 def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Adds technical indicators like SMA, EMA, RSI, MACD, Bollinger Bands, OBV, Ichimoku.
-
+    Args:
+      df: DataFrame with 'close' and other OHLCV columns.
     Returns:
-        pd.DataFrame: DataFrame with added columns.
+      df with new columns ['SMA_20','SMA_50','RSI_14','Volatility'],
+      each shifted by 1 day, then initial NaNs dropped.
     """
+    out = df.copy()
 
-    # === Basic Returns ===
-    df['Returns'] = df['close'].pct_change()
+    out["SMA_20_raw"] = out["close"].rolling(20).mean()
+    out["SMA_50_raw"] = out["close"].rolling(50).mean()
 
-    # === Moving Averages ===
-    df['SMA_20'] = df['close'].rolling(window=20).mean()
-    df['SMA_50'] = df['close'].rolling(window=50).mean()
-    df['EMA_20'] = df['close'].ewm(span=20, adjust=False).mean()
-
-    # === Bollinger Bands ===
-    std = df['close'].rolling(window=20).std()
-    df['BB_Middle'] = df['SMA_20']
-    df['BB_Upper'] = df['BB_Middle'] + 2 * std
-    df['BB_Lower'] = df['BB_Middle'] - 2 * std
-
-    # === RSI (Relative Strength Index) ===
-    delta = df['close'].diff()
+    delta = out["close"].diff()
     up = delta.clip(lower=0)
     down = -delta.clip(upper=0)
-    avg_gain = up.rolling(14).mean()
-    avg_loss = down.rolling(14).mean()
-    rs = avg_gain / avg_loss
-    df['RSI'] = 100 - (100 / (1 + rs))
+    ma_up   = up.rolling(14).mean()
+    ma_down = down.rolling(14).mean()
+    out["RSI_14_raw"] = 100 - (100 / (1 + (ma_up / ma_down)))
 
-    # === MACD (Moving Average Convergence Divergence) ===
-    ema_12 = df['close'].ewm(span=12, adjust=False).mean()
-    ema_26 = df['close'].ewm(span=26, adjust=False).mean()
-    df['MACD'] = ema_12 - ema_26
-    df['MACD_Signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
+    out["Volatility_raw"] = out["close"].pct_change().rolling(20).std()
 
-    # === Momentum ===
-    df['Momentum'] = df['close'] - df['close'].shift(10)
+    # Shift each raw indicator so day-t uses only up to t-1
+    for col in ["SMA_20_raw","SMA_50_raw","RSI_14_raw","Volatility_raw"]:
+        new = col.replace("_raw","")
+        out[new] = out[col].shift(1)
+        out.drop(columns=[col], inplace=True)
 
-    # === On-Balance Volume (OBV) ===
-    obv = [0]
-    for i in range(1, len(df)):
-        if df['close'].iloc[i] > df['close'].iloc[i - 1]:
-            obv.append(obv[-1] + df['volume'].iloc[i])
-        elif df['close'].iloc[i] < df['close'].iloc[i - 1]:
-            obv.append(obv[-1] - df['volume'].iloc[i])
-        else:
-            obv.append(obv[-1])
-    df['OBV'] = obv
-
-    # === Ichimoku Components ===
-    high_9 = df['high'].rolling(window=9).max()
-    low_9 = df['low'].rolling(window=9).min()
-    df['Tenkan_sen'] = (high_9 + low_9) / 2
-
-    high_26 = df['high'].rolling(window=26).max()
-    low_26 = df['low'].rolling(window=26).min()
-    df['Kijun_sen'] = (high_26 + low_26) / 2
-
-    df['Senkou_span_A'] = ((df['Tenkan_sen'] + df['Kijun_sen']) / 2).shift(26)
-    high_52 = df['high'].rolling(window=52).max()
-    low_52 = df['low'].rolling(window=52).min()
-    df['Senkou_span_B'] = ((high_52 + low_52) / 2).shift(26)
-
-    df['Chikou_span'] = df['close'].shift(-26)
-
-    # === Rolling Volatility ===
-    df['Volatility'] = df['Returns'].rolling(window=20).std()
-
-    df.dropna(inplace=True)
-    return df
+    out = out.dropna()
+    if out.isna().any().any():
+        raise ValueError("NaNs remain after indicator generation")
+    return out

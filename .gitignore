@@ -1,7 +1,5 @@
-.env
-*.png
-*.pt
+*/__pycache__
 /wandb
-__pycache__
-./__pycache__
 *.csv
+*.pkl
+*.pt

@@ -1,107 +1,94 @@
 """
-training/trainer.py
-
-Purpose:
---------
-Contains core training loop for LSTM and Attention LSTM models with wandb logging,
-real-time progress bars, plotting, and checkpoint saving.
-
-Inputs:
--------
-- model (nn.Module): PyTorch LSTM or AttentionLSTM
-- X_train, y_train, X_test, y_test: ndarray
-- config (dict): model + logging hyperparameters
-- y_scaler (StandardScaler): optional inverse-scaling for output
-
-Outputs:
---------
-- rmse (float)
-- preds_np (np.ndarray): inverse-scaled predictions
-- y_test_np (np.ndarray): inverse-scaled targets
-- history (dict): train and val losses per epoch
+Train LSTMModel with W&B logging and holdout validation.
+Saves best model by lowest holdout RMSE. Optionally returns history.
 """
 
-import torch
-from torch.utils.data import TensorDataset, DataLoader
-import numpy as np
-from tqdm import tqdm
-import wandb
 import os
+import torch
+import wandb
+import logging
+import numpy as np
+from torch.nn import MSELoss
+from torch.utils.data import DataLoader, TensorDataset
+from config import CONFIG
 
-from utils.plots import plot_predictions, plot_loss_curve
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
+def train_model(model, X_train, y_train, X_test, y_test, y_scaler, test_dates,
+                return_history: bool = False):
+    """
+    Trains for CONFIG['epochs'], logs train_loss, holdout RMSE & DA.
+    If return_history=True, returns (best_rmse, preds, actuals, dates, history),
+    where history is a dict with lists: train_losses, holdout_rmses, holdout_das.
+    Otherwise returns (best_rmse, preds, actuals, dates).
+    """
+    from models.lstm import LSTMModel
+    input_size = X_train.shape[2]
+    model = model or LSTMModel(input_size, CONFIG["hidden_size"],
+                               CONFIG["num_layers"], CONFIG["dropout"])
+    os.makedirs(CONFIG["model_dir"], exist_ok=True)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
 
-def train_model(model, X_train, y_train, X_test, y_test, config, y_scaler=None, test_dates=None):
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = model.to(device)
-
-    criterion = torch.nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=config['learning_rate'])
+    opt = torch.optim.Adam(model.parameters(), lr=CONFIG["learning_rate"])
+    crit = MSELoss()
 
     train_ds = TensorDataset(torch.tensor(X_train, dtype=torch.float32),
                              torch.tensor(y_train, dtype=torch.float32))
-    train_loader = DataLoader(train_ds, batch_size=config['batch_size'], shuffle=True)
+    test_ds  = TensorDataset(torch.tensor(X_test, dtype=torch.float32),
+                             torch.tensor(y_test, dtype=torch.float32))
+    train_dl = DataLoader(train_ds, batch_size=CONFIG["batch_size"], shuffle=True)
+    test_dl  = DataLoader(test_ds,  batch_size=CONFIG["batch_size"], shuffle=False)
 
-    history = {'train_loss': [], 'val_loss': []}
+    best_rmse = float("inf")
+    wandb.watch(model, log="all", log_freq=10)
 
-    for epoch in range(config['epochs']):
+    # prepare history lists if needed
+    if return_history:
+        history = {"train_losses": [], "holdout_rmses": [], "holdout_das": []}
+
+    for ep in range(1, CONFIG["epochs"]+1):
+        # Training
         model.train()
-        running_loss = 0.0
-        progress_bar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{config['epochs']}", leave=False)
+        losses = []
+        for xb, yb in train_dl:
+            xb, yb = xb.to(device), yb.to(device)
+            pred = model(xb)
+            loss = crit(pred, yb)
+            opt.zero_grad(); loss.backward(); opt.step()
+            losses.append(loss.item())
+        train_loss = np.mean(losses)
 
-        for X_batch, y_batch in progress_bar:
-            X_batch, y_batch = X_batch.to(device), y_batch.to(device)
-
-            optimizer.zero_grad()
-            preds = model(X_batch).squeeze()
-            loss = criterion(preds, y_batch)
-            loss.backward()
-            optimizer.step()
-
-            running_loss += loss.item()
-            progress_bar.set_postfix(train_loss=loss.item())
-
-        avg_train_loss = running_loss / len(train_loader)
-
+        # Validation
         model.eval()
+        all_p, all_t = [], []
         with torch.no_grad():
-            X_test_tensor = torch.tensor(X_test, dtype=torch.float32).to(device)
-            y_test_tensor = torch.tensor(y_test, dtype=torch.float32).to(device)
-            preds = model(X_test_tensor).squeeze()
-            val_loss = criterion(preds, y_test_tensor).item()
+            for xb, yb in test_dl:
+                xb, yb = xb.to(device), yb.to(device)
+                p = model(xb).cpu().numpy()
+                all_p.append(p); all_t.append(yb.cpu().numpy())
+        preds_norm = np.concatenate(all_p)
+        trues_norm = np.concatenate(all_t)
+        actuals = y_scaler.inverse_transform(trues_norm.reshape(-1,1)).flatten()
+        preds   = y_scaler.inverse_transform(preds_norm.reshape(-1,1)).flatten()
 
-        history['train_loss'].append(avg_train_loss)
-        history['val_loss'].append(val_loss)
+        rmse = np.sqrt(np.mean((preds-actuals)**2))
+        da   = np.mean(np.sign(preds[1:]-preds[:-1]) == np.sign(actuals[1:]-actuals[:-1]))
 
-        model_prefix = config['model_name']  # e.g., 'LSTM' or 'Attention_LSTM'
+        logger.info(f"Epoch {ep}/{CONFIG['epochs']}  TrainLoss={train_loss:.4f}  RMSE={rmse:.4f}  DA={da:.4f}")
+        wandb.log({"Train_Loss": train_loss, "Holdout_RMSE": rmse, "Holdout_DA": da, "epoch": ep})
 
-        wandb.log({
-            f"{model_prefix}_Train_Loss": avg_train_loss,
-            f"{model_prefix}_Val_Loss": val_loss,
-            f"{model_prefix}_Epoch": epoch + 1
-        })
+        if return_history:
+            history["train_losses"].append(train_loss)
+            history["holdout_rmses"].append(rmse)
+            history["holdout_das"].append(da)
 
-        print(f"[Epoch {epoch+1}/{config['epochs']}] Train Loss: {avg_train_loss:.5f} | Val Loss: {val_loss:.5f}")
+        if rmse < best_rmse:
+            best_rmse = rmse
+            torch.save(model.state_dict(),
+                       os.path.join(CONFIG["model_dir"], f"{CONFIG['default_symbol']}_latest.pt"))
 
-    # === Final RMSE ===
-    rmse = torch.sqrt(criterion(preds, y_test_tensor)).item()
-    wandb.log({"Test RMSE": rmse})
-
-    # === Inverse scale ===
-    preds_np = preds.detach().cpu().numpy()
-    y_test_np = y_test_tensor.detach().cpu().numpy()
-    if y_scaler:
-        preds_np = y_scaler.inverse_transform(preds_np.reshape(-1, 1)).flatten()
-        y_test_np = y_scaler.inverse_transform(y_test_np.reshape(-1, 1)).flatten()
-
-    # === Plots ===
-    plot_predictions(preds_np, y_test_np, config['model_name'], test_dates)
-    plot_loss_curve(history, config['model_name'])
-
-    # === Save model ===
-    os.makedirs("models", exist_ok=True)
-    model_path = f"model/{wandb.run.name}_{config['model_name']}.pt"
-    torch.save(model.state_dict(), model_path)
-    wandb.save(model_path)
-
-    return rmse, preds_np, y_test_np, history
+    if return_history:
+        return best_rmse, preds, actuals, test_dates, history
+    return best_rmse, preds, actuals, test_dates
