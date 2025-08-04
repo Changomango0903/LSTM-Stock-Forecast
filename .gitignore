@@ -1,6 +1,5 @@
-.env
 */__pycache__
-/models
-*.png
-*.log
 /wandb
+*.csv
+*.pkl
+*.pt

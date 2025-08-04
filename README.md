@@ -1,102 +1,182 @@
-# 📈 LSTM-Based Stock Forecasting & Backtesting Pipeline
+# LSTM-Stock Forecasting Pipeline
 
-**A modular research framework for building, fine-tuning, and rigorously backtesting deep learning models for financial time series forecasting.**
-
----
-
-<p align="center">
-  <img src="https://img.shields.io/badge/Python-3.10-blue" />
-  <img src="https://img.shields.io/badge/PyTorch-ML-orange" />
-  <img src="https://img.shields.io/badge/W&B-Experiment_Tracking-yellow" />
-</p>
+This repository implements a fully causal, denoising-driven, modular pipeline for next-day stock return forecasting, with end-to-end support for training, evaluation, live prediction, and incremental fine-tuning.
 
 ---
 
-## 🚀 Overview
+## 🚀 Project Overview
 
-This repository demonstrates a **complete, production-grade machine learning pipeline** for daily stock price prediction, alpha signal generation, and systematic trading backtesting.
+**Goal:** Forecast next-day stock returns (distributional forecasting) using a CNN→LSTM→Attention hybrid architecture, advanced denoising, and return distribution modeling.
 
-Combining:
-- ✅ **Modern LSTM and Attention-LSTM architectures**
-- ✅ **Rich technical indicator engineering**
-- ✅ **Strong baseline benchmarking (trees, regressors)**
-- ✅ **Transparent backtesting with real trade simulation**
-- ✅ **Full Weights & Biases (W&B) experiment tracking**
+**Current State:**
 
----
-
-## 🎓 Academic Motivation
-
-Designed to meet **postgraduate research standards** in quantitative finance and applied machine learning:
-
-- Trains sequence models on engineered features that capture price momentum, trend, volatility, and cyclical structure.
-- Supports **stock-specific fine-tuning** and **multi-asset pretraining**.
-- Evaluates prediction quality with both **statistical loss (RMSE)** and **risk-focused metrics** (directional accuracy, Sharpe ratio, drawdown).
-- Provides fully auditable trade signals, charts, and logs.
+* **Baseline LSTM** with EMA/Kalman denoising and lagged technical indicators.
+* **Full train → holdout evaluation** pipeline with W\&B integration and plotting.
+* **Daily live prediction** at market open, logging predictions and live directional accuracy.
+* **Incremental fine-tuning** after market close for continuous adaptation.
+* **Feature selection** via `CONFIG["feature_cols"]` and support for custom indicators.
+* **Zero data leakage**: causal denoising, shifted indicators, placeholder alignment.
 
 ---
 
-## 💼 Industry Relevance
+## 📁 Repository Structure
 
-Built to illustrate practical steps for real-world **systematic trading signal development**:
-
-- Converts raw forecasts into actionable **Long/Short trading signals** via robust threshold sweeps.
-- Simulates realistic equity curves, entry/exit logic, and PnL paths.
-- Outputs easy-to-interpret **trade logs** (CSV) for third-party review.
-- Provides clear benchmark baselines for measuring ML edge.
-
----
-
-## ⚙️ Pipeline Modules
-
-| Module | Purpose |
-|---------------------|---------|
-| **`pretrain_general.py`** | Pretrain a general-purpose LSTM on multiple tickers to learn shared dynamics. |
-| **`finetune_single.py`** | Fine-tune pretrained weights on a specific stock over any custom date window. |
-| **`feature_engineering.py`** | Adds robust technical signals: SMA, EMA, RSI, MACD, Bollinger Bands, OBV, and more. |
-| **`train.py`** | Core training loop with scaling, batching, loss tracking, and W&B logging. |
-| **`baseline_models.py`** | Runs classical regressors (Linear, Ridge, Lasso, SVR, Trees) for benchmark comparison. |
-| **`evaluate.py`** | Computes test RMSE, directional accuracy, and mean predicted signal return. |
-| **`backtest_strategy.py`** | Turns predictions into realistic trade positions, simulates PnL, exports trade logs. |
-| **`threshold_sweep.py`** | Sweeps thresholds to find robust Long/Short signal breakpoints. |
-
----
-
-## 📊 Key Metrics & Plots
-
-- **RMSE** – prediction error for price forecasts.
-- **Directional Accuracy** – % of up/down calls correct.
-- **Win Rate** – % of trades that finish profitably (Long/Short).
-- **Sharpe Ratio** – return per unit risk.
-- **Max Drawdown** – worst peak-to-trough loss.
-- **Equity Curve** – how the strategy capital grows over time.
-- **Price Chart** – marks every entry/exit directly on the asset price.
-
-All results log to **Weights & Biases** for reproducibility and tracking.
+```
+├── config.py             # Global configuration and hyperparameters
+├── data/
+│   ├── alphavantage.py   # Historical & latest-open fetchers
+│   ├── split.py          # Sequence creation
+│   └── scaler.py         # Data scaling and persistence
+├── denoising/
+│   └── denoise.py        # EMA / Kalman filters (causal)
+├── features/
+│   └── indicators.py     # Lagged technical & return-based features
+├── models/
+│   └── lstm.py           # LSTM regression model
+├── training/
+│   └── trainer.py        # Train loop, W&B, history
+├── evaluation/
+│   ├── holdout.py        # Holdout-only RMSE/DA
+│   └── live.py           # Daily live predict & live DA
+├── finetune/
+│   └── finetuner.py      # Incremental fine-tuning
+├── utils/
+│   ├── metrics.py        # RMSE & directional accuracy
+│   └── plots.py          # Matplotlib plot helpers
+├── scripts/
+│   ├── train.py          # Full retrain + holdout
+│   ├── evaluate.py       # Holdout eval + plotting
+│   ├── live_pipeline.py  # Live prediction entrypoint
+│   ├── plot_live.py      # Plot live pred vs actual
+│   └── finetune.py       # Daily fine-tuning
+└── artifacts/            # Models, scalers, live_results.csv
+```
 
 ---
 
-## 📈 Example: Realistic Backtest
+## ⚙️ Configuration (`config.py`)
 
-A typical run:
-1. Train on any stock for any date range.
-2. Predict next-day price, convert to **implied return**.
-3. Apply asymmetric thresholds:
-   - **Long:** if predicted return > +X%.
-   - **Short:** if predicted return < –X%.
-4. Simulate trade PnL, visualize real entry/exit points on the price chart.
-5. Export a **trade log CSV** for transparency.
+Centralizes all parameters:
+
+```python
+CONFIG = {
+    # Data & sequences
+    "start_date": "2019-01-01",
+    "end_date": "2025-08-01",
+    "sequence_length": 60,
+    "holdout_size": 250,
+    "default_symbol": "AAPL",
+
+    # Model hyperparameters
+    "hidden_size": 64,
+    "num_layers": 2,
+    "dropout": 0.2,
+    "learning_rate": 1e-3,
+    "batch_size": 64,
+    "epochs": 50,
+
+    # AlphaVantage
+    "av_api_key": "YOUR_API_KEY",
+    "denoising_method": "kalman",      # raw | ema | kalman
+
+    # Features (flip features on/off here)
+    "feature_cols": [
+        "close", "SMA_20", "SMA_50", "RSI_14", "Volatility",
+        "Return_1", "Return_5", "Volume_Change", "Return_Skew"
+    ],
+
+    # Artifacts
+    "model_dir": "artifacts/models",
+    "scaler_dir": "artifacts/scalers",
+    "live_csv": "artifacts/live_results.csv",
+
+    # W&B
+    "wandb_project": "stock_forecasting_live",
+}
+```
 
 ---
 
-## ✅ Quick Start
+## 📈 Training & Evaluation
+
+### Full Retrain
 
 ```bash
-# Fine-tune on AAPL
-python finetune_single.py
+python scripts/train.py
+```
 
-# Backtest with realistic trade simulation
-python backtest_strategy.py
+* Fetches history, denoises, computes indicators.
+* Builds 60-day sequences, splits holdout.
+* Scales data, trains LSTM for `epochs`, logs train/holdout metrics to W\&B.
+* Plots training & holdout curves locally.
 
-# Sweep thresholds to find robust signal breakpoints WIP
-python threshold_sweep.py
+### Holdout-Only Evaluation
+
+```bash
+python scripts/evaluate.py
+```
+
+* Reuses saved model & scalers.
+* Computes holdout RMSE & DA.
+* Plots actual vs. predicted on holdout.
+
+---
+
+## 🌐 Live Prediction Pipeline
+
+```bash
+python scripts/live_pipeline.py
+```
+
+* Scheduled **Mon–Fri at 16:31 Istanbul** after U.S. open.
+* Fetches history through yesterday, denoises, appends today’s open.
+* Builds input window, logs last 60 real days.
+* Loads model & scalers, predicts today’s close, appends to `live_results.csv`.
+* Computes live directional accuracy over past dates, logs to W\&B.
+* **Plot live**:
+
+  ```bash
+  python scripts/plot_live.py
+  ```
+
+---
+
+## 🔄 Incremental Fine-Tuning
+
+```bash
+python scripts/finetune.py
+```
+
+* Runs **Mon–Fri at 23:00 Istanbul** after market close.
+* Fetches last 2× holdout window, denoises, indicators.
+* Splits recent holdout, scales with existing scalers.
+* Fine-tunes model for a few epochs at low LR, saves updated model.
+
+---
+
+## 🛠️ Customization & Extensions
+
+* **Feature Selection:** update `CONFIG["feature_cols"]` to add/remove signals.
+* **Ticker Override:** add `--symbol` flag to scripts to target any stock.
+* **Denoising:** switch between `raw`, `ema`, `kalman` in `config.py`.
+* **Directional Optimization:** convert to classification or multi-task in `models/lstm.py` & `trainer.py`.
+
+---
+
+## 📝 Best Practices
+
+* **No data leakage:** causal filters, lagged indicators, placeholder alignment.
+* **W\&B Logging:** track train/holdout/live metrics and model versions.
+* **Cron Scheduling:** ensure scripts run only on trading days, after open/close.
+
+---
+
+## 📚 References
+
+* [PyTorch LSTM Docs](https://pytorch.org/docs/stable/nn.html#lstm)
+* [AlphaVantage API](https://www.alphavantage.co/documentation/)
+* [pykalman](https://pykalman.github.io)
+
+---
+
+Happy forecasting! 🚀
